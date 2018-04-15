@@ -12,7 +12,7 @@ import time
 BASE_URL_BY_ID = "http://www.ufostalker.com:8080/event?id="
 BASE_URL_BY_TERM = "http://ufostalker.com:8080/search?type=all&size=10&term="
 SOURCE = "MUFON"
-REPORTS_BY_PAGE = 10
+REPORTS_BY_PAGE = 20
 TIME_DELAY = 5
 
 class Sighting:
@@ -186,6 +186,8 @@ else:
 
   for x in range(1, n_pages + 1):
     try:
+      print(x)
+      print("total", total_reports)
       reports = parse_reports_by_term(BASE_URL_BY_TERM, term, x)
       for report in reports:
         out.writerow(report.to_array())
