@@ -67,8 +67,7 @@ def parse_report(base_url, x):
   source = requests.get("%s%s" % (base_url, x), headers = {'User-Agent': 'mufon-crawler'}, stream = True)
 
   if source.status_code is not 200:
-    print('Did not get a status OK, %s', source.status_code)
-    sys.exit()
+    print('Did not get a status OK', source.status_code)
 
   source.raw.decode_content = True
 
@@ -99,8 +98,7 @@ def parse_reports_by_term(base_url, term, page_number):
   source = requests.get("%s%s&page=%s" % (base_url, term, page_number), headers = {'User-Agent': 'mufon-crawler'})
 
   if source.status_code is not 200:
-    print('Did not get a status OK, %s', source.status_code)
-    sys.exit()
+    print('Did not get a status OK', source.status_code)
 
   doc = json.loads(source.text)
   content = doc['content']
@@ -171,9 +169,12 @@ out.writerow(header)
 if term is None:
   for x in range(int(begin_index), int(end_index) + 1):
     print("Downloading reports by report number... %s%s" % (BASE_URL_BY_ID, x))
+    try:
+      report = parse_report(BASE_URL_BY_ID, x)
+      out.writerow(report.to_array())
+    except:
+      print('Could not parse the report')
 
-    report = parse_report(BASE_URL_BY_ID, x)
-    out.writerow(report.to_array())
     time.sleep(TIME_DELAY)
 else:
   print("Downloading reports by term... %s%s" % (BASE_URL_BY_TERM, term))
@@ -184,11 +185,14 @@ else:
   total_reports = 0
 
   for x in range(1, n_pages + 1):
-    reports = parse_reports_by_term(BASE_URL_BY_TERM, term, x)
-    for report in reports:
-      out.writerow(report.to_array())
-      total_reports += 1
-      if total_reports == limit:
-        sys.exit()
+    try:
+      reports = parse_reports_by_term(BASE_URL_BY_TERM, term, x)
+      for report in reports:
+        out.writerow(report.to_array())
+        total_reports += 1
+        if total_reports == limit:
+          sys.exit()
+    except:
+      print('Could not parse the report')
 
     time.sleep(TIME_DELAY)
