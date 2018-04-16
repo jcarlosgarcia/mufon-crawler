@@ -1,3 +1,5 @@
+"""This script generates a CSV from MUFON data. Reports are selected by a range of ids or performing a term search,
+which can be used to select reports by shape, country, etc."""
 from datetime import datetime
 from geopy.geocoders import Nominatim
 from lxml import etree
@@ -9,15 +11,32 @@ import requests
 import sys
 import time
 
+# Base URL to select reports by id
 BASE_URL_BY_ID = "http://www.ufostalker.com:8080/event?id="
+# Base URL to select reports by term
 BASE_URL_BY_TERM = "http://ufostalker.com:8080/search?type=all&size=10&term="
+# Source, organization who logged the sightings
 SOURCE = "MUFON"
+# Number of items per page when a term search is used
 REPORTS_BY_PAGE = 20
+# Time between requests
 TIME_DELAY = 5
 
 class Sighting:
-
+  """This class represents a single UFO report"""
   def __init__(self, id, sighted_at, reported_at, location, shape, duration, description, latitude, longitude, case_number):
+    """Instantiates a report.
+    :param id: report id
+    :param sighted_at: date when the event occurred
+    :param reported_at: date when the event was submitted
+    :param location: location, it has the form city (country)
+    :param shape: UFO shape
+    :param duration: duration of the event
+    :param description: description of the event
+    :param latitude: latitude
+    :param longitude: longitude
+    :param case_number: MUFON case number for reference
+    """
     self.id = id
     self.sighted_at = sighted_at
     self.reported_at = reported_at
@@ -31,13 +50,16 @@ class Sighting:
     self.case_number = case_number
 
   def __str__(self):
+    """returns a string representation of the report, where all the fields are comma separated"""
     return "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s" % (self.id, self.sighted_at, self.reported_at, self.location, self.shape, self.duration, self.description, self.source, self.latitude, self.longitude, self.case_number)
 
   def to_array(self):
+    """returns an array representation of the object, where every field is an array item"""
     return [self.id, self.sighted_at, self.reported_at, self.location, self.shape, self.duration, self.description, self.latitude, self.longitude, self.case_number]
 
-
+# Helper functions
 def check_arguments(initial, end, term, output):
+  """returns True if arguments are OK, False otherwise"""
   if term is None:
     if initial is None or end is None:
       print("'initial' and 'end' must be passed unless you specify a term")
@@ -53,20 +75,23 @@ def check_arguments(initial, end, term, output):
   # If term is passed, 'initial' and 'end' are ignored
   return True
 
-
-
 def clean(text):
-  text.gsub("(\n|\r|\t)+", '').lstrip()
+  """removes all line breaks and carriage returns in a string"""
+  text.replace('\r', '').replace('\n', '')
 
 def geolocate(city, country):
+  """returns a location object, calculated from a string location in the form city, country"""
   geolocator = Nominatim()
   loc = geolocator.geocode("%s, %s" % (city, country))
   return loc
 
 def parse_report(base_url, x):
+  """parses the report from its base url and returns a Sighting object"""
+  # Sets a custom user agent as the default one is blocked
   source = requests.get("%s%s" % (base_url, x), headers = {'User-Agent': 'mufon-crawler'}, stream = True)
 
   if source.status_code is not 200:
+    # Logs a message, the error in handled in the caller function
     print('Did not get a status OK', source.status_code)
 
   source.raw.decode_content = True
@@ -80,24 +105,34 @@ def parse_report(base_url, x):
   location = "%s (%s)" % (event.find("city").text, event.find("country").text)
   shape = event.find("shape").text
   duration = event.find("duration").text
-  description = event.find("detailedDescription").text
+  description = clean(event.find("detailedDescription").text)
   latitude = event.find("latitude").text
   longitude = event.find("longitude").text
   case_number = event.find("logNumber").text
 
+  # Geolocate the sighting in case of latitude or longitude do not exist
   if latitude is None or longitude is None:
-    loc = geolocate(event.find("city").text, event.find("country").text)
-    latitude = loc.latitude
-    longitude = loc.longitude
+    try:
+      loc = geolocate(event.find("city").text, event.find("country").text)
+      latitude = loc.latitude
+      longitude = loc.longitude
+    except:
+      print('Could not geolocate the sighting')
+      latitude = None
+      longitude = None
 
   report = Sighting(id, sighted_at, reported_at, location, shape, duration, description, latitude, longitude, case_number)
 
   return report
 
 def parse_reports_by_term(base_url, term, page_number):
+  """parses the report from its base url and returns a Sighting object. It uses a term and a page_number to filter the results.
+  Returns an array of reports including the term, corresponding to the specified page number"""
+  # Sets a custom user agent as the default one is blocked
   source = requests.get("%s%s&page=%s" % (base_url, term, page_number), headers = {'User-Agent': 'mufon-crawler'})
 
   if source.status_code is not 200:
+    # Logs a message, the error in handled in the caller function
     print('Did not get a status OK', source.status_code)
 
   doc = json.loads(source.text)
@@ -105,6 +140,7 @@ def parse_reports_by_term(base_url, term, page_number):
 
   reports = []
 
+  # Both submitted and occurred are in milliseconds, which are then converted to dates if possible
   for report in content:
     id = report['id']
     reported_at = None
@@ -122,11 +158,12 @@ def parse_reports_by_term(base_url, term, page_number):
     location = "%s (%s)" % (report['city'], report['country'])
     shape = report['shape']
     duration = report['duration']
-    description = report['detailedDescription']
+    description = clean(report['detailedDescription'])
     latitude = report['latitude']
     longitude = report['longitude']
     case_number = report['logNumber']
 
+    # Geolocate the sighting in case of latitude or longitude do not exist
     if latitude is None or longitude is None:
       try:
         loc = geolocate(report['city'], report['country'])
@@ -143,7 +180,7 @@ def parse_reports_by_term(base_url, term, page_number):
 
   return reports
 
-
+# Command line arguments parsing
 parser = argparse.ArgumentParser(description = 'Generates a CSV from MUFON reports')
 parser.add_argument('-i', '--initial', type = int, help = 'Initial report id')
 parser.add_argument('-e', '--end', type = int, help = 'Final report id')
@@ -159,22 +196,27 @@ out_file = args.output
 term = args.term
 limit = args.limit
 
+# If something is wrong with the arguments, exit
 if not check_arguments(begin_index, end_index, term, out_file):
   sys.exit()
 
+# Header for the output CSV file
 header = ["id", "sighted_at", "reported_at", "location", "shape", "duration", "description", "latitude", "longitude", "case_number"]
+# Output CSV file. Comma is used as delimiter and all fields are quoted
 out = csv.writer(open(out_file, "w"), delimiter = ',', quoting = csv.QUOTE_ALL)
 out.writerow(header)
 
+# If term is not specified, id selection is assumed
 if term is None:
   for x in range(int(begin_index), int(end_index) + 1):
     print("Downloading reports by report number... %s%s" % (BASE_URL_BY_ID, x))
     try:
       report = parse_report(BASE_URL_BY_ID, x)
+      # Write a new row into the CSV file
       out.writerow(report.to_array())
     except:
       print('Could not parse the report')
-
+    # Wait TIME_DELAY seconds before a new request
     time.sleep(TIME_DELAY)
 else:
   print("Downloading reports by term... %s%s" % (BASE_URL_BY_TERM, term))
@@ -190,6 +232,7 @@ else:
       print("total", total_reports)
       reports = parse_reports_by_term(BASE_URL_BY_TERM, term, x)
       for report in reports:
+        # Write a new row into the CSV file
         out.writerow(report.to_array())
         total_reports += 1
         if total_reports == limit:
