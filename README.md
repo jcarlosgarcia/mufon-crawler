@@ -1,6 +1,6 @@
 # Tipología y ciclo de vida de los datos
 
-## Práctica 1
+**Práctica 1**
 
 **Alumno:** José Carlos García Pérez
 
